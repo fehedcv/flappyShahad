@@ -8,7 +8,7 @@ import os
 app = Flask(__name__, static_folder='.')
 
 # 🔐 Get the base64-encoded creds from environment variable
-firebase_creds_b64 = os.environ.get("FIREBASE_CREDS_BASE64", "")
+firebase_creds_b64 = os.getenv("FIREBASE_CREDS_BASE64")
 if not firebase_creds_b64:
     raise Exception("Missing FIREBASE_CREDS_BASE64 environment variable")
 

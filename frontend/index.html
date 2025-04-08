@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Flappy Shahad</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      overscroll-behavior: none;
+    }
+    canvas {
+      background: skyblue;
+      display: block;
+      margin: auto;
+      width: 100%;
+      max-width: 400px;
+      height: auto;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen bg-blue-100 px-4 py-6">
+
+  <!-- Intro Screen -->
+  <div id="intro" class="w-full max-w-md text-center">
+    <h1 class="text-3xl sm:text-4xl font-bold mb-4">Flappy Shahad 🐦</h1>
+    <input id="roll" placeholder="Enter Roll Number"
+           class="w-full p-3 text-lg border border-gray-400 rounded mb-3" />
+    <button onclick="startGame()" class="w-full bg-green-500 text-white py-3 text-lg rounded">
+      Start
+    </button>
+    <p id="playerName" class="mt-3 text-lg font-semibold"></p>
+  </div>
+
+  <!-- Game Canvas -->
+  <canvas id="gameCanvas" width="320" height="480" class="hidden mt-4 border-2 border-black rounded-lg"></canvas>
+
+  <!-- Game Over & Leaderboard -->
+  <div id="gameOverScreen" class="hidden w-full max-w-md text-center mt-6">
+    <p class="text-2xl font-bold mb-2">Game Over!</p>
+    <p id="scoreDisplay" class="text-lg mb-4"></p>
+    <button onclick="resetGame()" class="bg-blue-500 text-white w-full py-3 rounded text-lg mb-4">
+      Retry
+    </button>
+    <div class="bg-white p-4 rounded shadow">
+      <h2 class="text-xl font-semibold mb-2">🏆 Leaderboard</h2>
+      <ul id="leaderboard" class="text-left text-sm space-y-1"></ul>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const birdImg = new Image();
+    birdImg.src = "shahad.png";
+
+    let roll = "", name = "", score = 0;
+    let gameLoop;
+    let spawnPipeTimeout;
+    let gameRunning = false;
+    const pipeGap = 130;
+    const pipeWidth = 50;
+    let pipes = [];
+
+    const bird = {
+      x: 50,
+      y: 150,
+      width: 30,
+      height: 30,
+      gravity: 1.5,
+      velocity: 0
+    };
+
+    function startGame() {
+      roll = document.getElementById("roll").value.trim();
+      if (!roll) return alert("Enter roll number");
+
+      fetch(`/get-name?roll=${roll}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) return alert(data.error);
+          name = data.name;
+          document.getElementById("playerName").innerText = `Player: ${name}`;
+          document.getElementById("intro").classList.add("hidden");
+          document.getElementById("gameCanvas").classList.remove("hidden");
+          initGame();
+        });
+    }
+
+    function initGame() {
+      clearInterval(gameLoop);
+      clearTimeout(spawnPipeTimeout);
+      pipes = [];
+      bird.y = 150;
+      bird.velocity = 0;
+      score = 0;
+      gameRunning = true;
+      spawnPipe();
+      gameLoop = setInterval(update, 30);
+    }
+
+    function resetGame() {
+      document.getElementById("gameOverScreen").classList.add("hidden");
+      document.getElementById("gameCanvas").classList.remove("hidden");
+      initGame();
+    }
+
+    function drawBird() {
+      ctx.drawImage(birdImg, bird.x, bird.y, bird.width, bird.height);
+    }
+
+    function drawPipes() {
+      ctx.fillStyle = "green";
+      pipes.forEach(pipe => {
+        ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
+        ctx.fillRect(pipe.x, pipe.top + pipeGap, pipeWidth, canvas.height - pipe.top - pipeGap);
+      });
+    }
+
+    function spawnPipe() {
+      const minHeight = 50;
+      const maxHeight = canvas.height - pipeGap - 50;
+      const top = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
+
+      pipes.push({
+        x: canvas.width,
+        top: top,
+        passed: false
+      });
+
+      spawnPipeTimeout = setTimeout(spawnPipe, 2000);
+    }
+
+    function update() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      bird.velocity += bird.gravity;
+      bird.y += bird.velocity;
+
+      if (bird.y + bird.height > canvas.height || bird.y < 0) {
+        return gameOver();
+      }
+
+      pipes.forEach(pipe => {
+        pipe.x -= 3;
+
+        // Collision
+        if (
+          bird.x < pipe.x + pipeWidth &&
+          bird.x + bird.width > pipe.x &&
+          (bird.y < pipe.top || bird.y + bird.height > pipe.top + pipeGap)
+        ) {
+          return gameOver();
+        }
+
+        // Score
+        if (!pipe.passed && pipe.x + pipeWidth < bird.x) {
+          score++;
+          pipe.passed = true;
+        }
+      });
+
+      drawBird();
+      drawPipes();
+    }
+
+    window.addEventListener("keydown", e => {
+      if (e.code === "Space" && gameRunning) bird.velocity = -10;
+    });
+
+    canvas.addEventListener("touchstart", () => {
+      if (gameRunning) bird.velocity = -10;
+    });
+
+    function gameOver() {
+      clearInterval(gameLoop);
+      clearTimeout(spawnPipeTimeout);
+      gameRunning = false;
+
+      document.getElementById("scoreDisplay").innerText = `Score: ${score}`;
+      document.getElementById("gameOverScreen").classList.remove("hidden");
+      document.getElementById("gameCanvas").classList.add("hidden");
+
+      fetch("/submit-score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roll, score })
+      });
+
+      fetch("/leaderboard")
+        .then(res => res.json())
+        .then(data => {
+          const lb = document.getElementById("leaderboard");
+          lb.innerHTML = "";
+          data.forEach(entry => {
+            lb.innerHTML += `<li>${entry.name} (${entry.roll}) - ${entry.score}</li>`;
+          });
+        });
+    }
+  </script>
+</body>
+</html>
